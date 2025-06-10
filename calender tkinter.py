@@ -1,559 +1,353 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
-from datetime import datetime, timedelta
+from tkinter import ttk, messagebox, simpledialog
 import calendar
-
+from datetime import datetime, date
 
 class CalendarApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Calendar")
-        self.root.configure(bg="#ffffff")
+        self.root.title("Calendar Application")
+        self.root.state('zoomed')  # Full screen on Windows
+        self.root.configure(bg='#f5f5f5')
         
-        # Set window size and position
-        self.root.geometry("1200x800")
-        self.root.minsize(800, 600)
+        # Center the window and make it full screen
+        self.root.geometry("1920x1080")
+        self.root.attributes('-fullscreen', False)
+        self.root.state('zoomed')
         
-        # Try to maximize window
-        try:
-            self.root.state("zoomed")  # Windows
-        except:
-            try:
-                self.root.attributes("-zoomed", True)  # Linux
-            except:
-                pass
-
-        self.selected_date = datetime.now()
-        self.view_mode = tk.StringVar(value="Month")
-        self.events = {}
-
-        # Google Calendar color scheme
-        self.colors = {
-            'primary': '#1a73e8',
-            'primary_light': '#4285f4',
-            'background': '#ffffff',
-            'surface': '#f8f9fa',
-            'border': '#dadce0',
-            'text_primary': '#202124',
-            'text_secondary': '#5f6368',
-            'hover': '#f1f3f4',
-            'today': '#1a73e8',
-            'today_bg': '#e8f0fe',
-            'weekend': '#f8f9fa'
-        }
-
+        self.current_year = datetime.now().year
+        self.today = date.today()
+        
+        # Main containers
+        self.main_frame = None
+        self.canvas = None
+        self.scrollable_frame = None
+        
         self.setup_styles()
-        self.create_layout()
-        self.refresh_view()
-
+        self.show_year_dialog()
+        
     def setup_styles(self):
-        """Setup ttk styles for better appearance"""
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Configure button styles
-        style.configure('Nav.TButton', 
-                       font=('Segoe UI', 9),
-                       relief='flat',
-                       borderwidth=1)
+        style.configure('Main.TFrame', background='#f5f5f5')
+        style.configure('Header.TLabel', font=('Arial', 20, 'bold'), background='#f5f5f5', foreground='#2c3e50')
+        style.configure('Month.TLabel', font=('Arial', 12, 'bold'), background='#3498db', 
+                       foreground='white', relief='flat', padding=5)
+        style.configure('Day.TLabel', font=('Arial', 9), background='white', 
+                       foreground='black', relief='solid', borderwidth=1, padding=2)
+        style.configure('Weekend.TLabel', font=('Arial', 9), background='#ffebee', 
+                       foreground='#e74c3c', relief='solid', borderwidth=1, padding=2)
+        style.configure('Today.TLabel', font=('Arial', 9, 'bold'), background='#2ecc71', 
+                       foreground='white', relief='solid', borderwidth=2, padding=2)
+        style.configure('DayHeader.TLabel', font=('Arial', 9, 'bold'), background='#ecf0f1', 
+                       foreground='#34495e', relief='flat', padding=3)
         
-        style.configure('View.TRadiobutton',
-                       font=('Segoe UI', 9),
-                       background=self.colors['background'])
-
-    def create_layout(self):
-        """Create the main layout structure"""
-        # Main container
-        main_frame = tk.Frame(self.root, bg=self.colors['background'])
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        self.create_header(main_frame)
-        self.create_view_area(main_frame)
-
-    def create_header(self, parent):
-        """Create the header with navigation and view controls"""
-        header_frame = tk.Frame(parent, bg=self.colors['background'], height=60)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
-        header_frame.pack_propagate(False)
-        
-        # Left side - Navigation
-        nav_frame = tk.Frame(header_frame, bg=self.colors['background'])
-        nav_frame.pack(side=tk.LEFT, pady=15)
-        
-        # Navigation buttons with Google Calendar styling
-        prev_btn = tk.Button(nav_frame, text="‹", 
-                            font=('Segoe UI', 16, 'bold'),
-                            bg=self.colors['background'],
-                            fg=self.colors['text_primary'],
-                            border=0,
-                            padx=12, pady=6,
-                            cursor='hand2',
-                            command=self.prev_period)
-        prev_btn.pack(side=tk.LEFT, padx=(0, 5))
-        prev_btn.bind('<Enter>', lambda e: prev_btn.config(bg=self.colors['hover']))
-        prev_btn.bind('<Leave>', lambda e: prev_btn.config(bg=self.colors['background']))
-        
-        next_btn = tk.Button(nav_frame, text="›", 
-                            font=('Segoe UI', 16, 'bold'),
-                            bg=self.colors['background'],
-                            fg=self.colors['text_primary'],
-                            border=0,
-                            padx=12, pady=6,
-                            cursor='hand2',
-                            command=self.next_period)
-        next_btn.pack(side=tk.LEFT, padx=(0, 15))
-        next_btn.bind('<Enter>', lambda e: next_btn.config(bg=self.colors['hover']))
-        next_btn.bind('<Leave>', lambda e: next_btn.config(bg=self.colors['background']))
-        
-        # Date label
-        self.date_label = tk.Label(nav_frame, text="", 
-                                  font=('Segoe UI', 18, 'normal'),
-                                  bg=self.colors['background'],
-                                  fg=self.colors['text_primary'],
-                                  cursor="hand2")
-        self.date_label.pack(side=tk.LEFT)
-        self.date_label.bind("<Button-1>", self.show_date_selector)
-        
-        # Right side - View controls
-        view_frame = tk.Frame(header_frame, bg=self.colors['background'])
-        view_frame.pack(side=tk.RIGHT, pady=15)
-        
-        # View mode buttons
-        month_btn = tk.Button(view_frame, text="Month",
-                             font=('Segoe UI', 9),
-                             bg=self.colors['primary'] if self.view_mode.get() == "Month" else self.colors['background'],
-                             fg=self.colors['background'] if self.view_mode.get() == "Month" else self.colors['text_primary'],
-                             border=1,
-                             relief='solid',
-                             padx=12, pady=6,
-                             cursor='hand2',
-                             command=lambda: self.change_view("Month"))
-        month_btn.pack(side=tk.RIGHT, padx=(0, 5))
-        
-        week_btn = tk.Button(view_frame, text="Week",
-                            font=('Segoe UI', 9),
-                            bg=self.colors['primary'] if self.view_mode.get() == "Week" else self.colors['background'],
-                            fg=self.colors['background'] if self.view_mode.get() == "Week" else self.colors['text_primary'],
-                            border=1,
-                            relief='solid',
-                            padx=12, pady=6,
-                            cursor='hand2',
-                            command=lambda: self.change_view("Week"))
-        week_btn.pack(side=tk.RIGHT)
-        
-        self.month_btn = month_btn
-        self.week_btn = week_btn
-
-    def create_view_area(self, parent):
-        """Create the main view area with scrolling support"""
-        # Create a frame with border
-        border_frame = tk.Frame(parent, bg=self.colors['border'], padx=1, pady=1)
-        border_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.view_frame = tk.Frame(border_frame, bg=self.colors['background'])
-        self.view_frame.pack(fill=tk.BOTH, expand=True)
-
-    def clear_view_area(self):
-        """Clear the view area and reset grid configuration"""
-        for widget in self.view_frame.winfo_children():
-            widget.destroy()
-        
-        # Reset grid configuration
-        for i in range(20):  # Reset more rows/columns than we typically use
-            self.view_frame.grid_rowconfigure(i, weight=0, minsize=0)
-            self.view_frame.grid_columnconfigure(i, weight=0, minsize=0)
-
-    def change_view(self, mode):
-        """Change view mode and update buttons"""
-        self.view_mode.set(mode)
-        
-        # Update button styles
-        if mode == "Month":
-            self.month_btn.config(bg=self.colors['primary'], fg=self.colors['background'])
-            self.week_btn.config(bg=self.colors['background'], fg=self.colors['text_primary'])
-        else:
-            self.week_btn.config(bg=self.colors['primary'], fg=self.colors['background'])
-            self.month_btn.config(bg=self.colors['background'], fg=self.colors['text_primary'])
-        
-        self.refresh_view()
-
-    def go_to_today(self):
-        """Navigate to current date"""
-        self.selected_date = datetime.now()
-        self.refresh_view()
-
-    def refresh_view(self):
-        """Refresh the current view"""
-        if self.view_mode.get() == "Month":
-            self.show_month_view()
-        else:
-            self.show_week_view()
-
-    def prev_period(self):
-        """Navigate to previous period"""
-        if self.view_mode.get() == "Month":
-            self.prev_month()
-        else:
-            self.prev_week()
-
-    def next_period(self):
-        """Navigate to next period"""
-        if self.view_mode.get() == "Month":
-            self.next_month()
-        else:
-            self.next_week()
-
-    def prev_month(self):
-        """Navigate to previous month"""
-        year = self.selected_date.year
-        month = self.selected_date.month - 1
-        if month == 0:
-            month = 12
-            year -= 1
-        self.selected_date = self.selected_date.replace(year=year, month=month, day=1)
-        self.refresh_view()
-
-    def next_month(self):
-        """Navigate to next month"""
-        year = self.selected_date.year
-        month = self.selected_date.month + 1
-        if month == 13:
-            month = 1
-            year += 1
-        self.selected_date = self.selected_date.replace(year=year, month=month, day=1)
-        self.refresh_view()
-
-    def prev_week(self):
-        """Navigate to previous week"""
-        self.selected_date -= timedelta(days=7)
-        self.refresh_view()
-
-    def next_week(self):
-        """Navigate to next week"""
-        self.selected_date += timedelta(days=7)
-        self.refresh_view()
-
-    def show_date_selector(self, event=None):
-        """Show date selection dialog"""
-        top = tk.Toplevel(self.root)
-        top.title("Select Date")
-        top.geometry("300x200")
-        top.configure(bg=self.colors['background'])
-        top.grab_set()
-        top.resizable(False, False)
+    def show_year_dialog(self):
+        # Create custom centered dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Enter Year")
+        dialog.geometry("300x150")
+        dialog.configure(bg='#f5f5f5')
+        dialog.transient(self.root)
+        dialog.grab_set()
         
         # Center the dialog
-        top.transient(self.root)
+        dialog.geometry("+{}+{}".format(
+            int(self.root.winfo_screenwidth()/2 - 150),
+            int(self.root.winfo_screenheight()/2 - 75)
+        ))
         
-        frame = tk.Frame(top, bg=self.colors['background'])
-        frame.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
+        frame = tk.Frame(dialog, bg='#f5f5f5')
+        frame.pack(expand=True, fill='both', padx=20, pady=20)
         
-        tk.Label(frame, text="Month:", font=('Segoe UI', 10), 
-                bg=self.colors['background'], fg=self.colors['text_primary']).pack(anchor='w', pady=(0, 5))
+        tk.Label(frame, text="Enter Year (1900-2100):", 
+                font=('Arial', 12), bg='#f5f5f5').pack(pady=10)
         
-        month_var = tk.StringVar(value=calendar.month_name[self.selected_date.month])
-        month_menu = ttk.Combobox(frame, textvariable=month_var, 
-                                 values=list(calendar.month_name[1:]),
-                                 state='readonly', font=('Segoe UI', 10))
-        month_menu.pack(fill='x', pady=(0, 10))
+        entry = tk.Entry(frame, font=('Arial', 12), justify='center')
+        entry.insert(0, str(self.current_year))
+        entry.pack(pady=5)
+        entry.focus()
         
-        tk.Label(frame, text="Year:", font=('Segoe UI', 10),
-                bg=self.colors['background'], fg=self.colors['text_primary']).pack(anchor='w', pady=(0, 5))
-        
-        year_var = tk.StringVar(value=str(self.selected_date.year))
-        year_entry = tk.Entry(frame, textvariable=year_var, font=('Segoe UI', 10))
-        year_entry.pack(fill='x', pady=(0, 20))
-        
-        button_frame = tk.Frame(frame, bg=self.colors['background'])
-        button_frame.pack(fill='x')
-        
-        def apply_change():
+        def submit():
             try:
-                selected_month = list(calendar.month_name).index(month_var.get())
-                selected_year = int(year_var.get())
-                self.selected_date = self.selected_date.replace(year=selected_year, month=selected_month, day=1)
-                self.refresh_view()
-                top.destroy()
+                year = int(entry.get())
+                if 1900 <= year <= 2100:
+                    self.current_year = year
+                    dialog.destroy()
+                    self.create_calendar()
+                else:
+                    messagebox.showerror("Error", "Year must be between 1900-2100")
             except ValueError:
-                messagebox.showerror("Invalid Input", "Please enter a valid year.")
+                messagebox.showerror("Error", "Please enter a valid year")
         
-        cancel_btn = tk.Button(button_frame, text="Cancel", 
-                              font=('Segoe UI', 9),
-                              bg=self.colors['background'],
-                              fg=self.colors['text_primary'],
-                              border=1, relief='solid',
-                              padx=15, pady=6,
-                              command=top.destroy)
-        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        def on_enter(event):
+            submit()
+            
+        entry.bind('<Return>', on_enter)
         
-        apply_btn = tk.Button(button_frame, text="Apply",
-                             font=('Segoe UI', 9),
-                             bg=self.colors['primary'],
-                             fg=self.colors['background'],
-                             border=0,
-                             padx=15, pady=6,
-                             command=apply_change)
-        apply_btn.pack(side=tk.RIGHT)
-
-    def show_month_view(self):
-        """Display month view with Google Calendar styling"""
-        self.clear_view_area()
+        btn_frame = tk.Frame(frame, bg='#f5f5f5')
+        btn_frame.pack(pady=10)
         
-        year = self.selected_date.year
-        month = self.selected_date.month
-        today = datetime.now().date()
+        tk.Button(btn_frame, text="Submit", command=submit, 
+                 font=('Arial', 10), bg='#3498db', fg='white',
+                 relief='flat', padx=20).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Cancel", command=self.root.quit, 
+                 font=('Arial', 10), bg='#e74c3c', fg='white',
+                 relief='flat', padx=20).pack(side='left', padx=5)
+    
+    def create_calendar(self):
+        # Clear window
+        for widget in self.root.winfo_children():
+            widget.destroy()
+            
+        self.main_frame = tk.Frame(self.root, bg='#f5f5f5')
+        self.main_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
-        self.date_label.config(text="{} {}".format(calendar.month_name[month], year))
+        # Header
+        self.create_header()
         
-        cal = calendar.Calendar(firstweekday=6)  # Start with Sunday
-        month_days = cal.monthdatescalendar(year, month)
+        # Create scrollable calendar area
+        self.create_scrollable_calendar()
+        
+        # Create all months instantly
+        self.create_all_months()
+    
+    def create_header(self):
+        header_frame = tk.Frame(self.main_frame, bg='#f5f5f5')
+        header_frame.pack(fill='x', pady=(0, 10))
+        
+        title_label = tk.Label(header_frame, text=f"Calendar {self.current_year}", 
+                              font=('Arial', 24, 'bold'), bg='#f5f5f5', fg='#2c3e50')
+        title_label.pack(side='left')
+        
+        btn_frame = tk.Frame(header_frame, bg='#f5f5f5')
+        btn_frame.pack(side='right')
+        
+        tk.Button(btn_frame, text="Change Year", command=self.show_year_dialog,
+                 font=('Arial', 10), bg='#3498db', fg='white', relief='flat', padx=15).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Today", command=self.go_to_today,
+                 font=('Arial', 10), bg='#2ecc71', fg='white', relief='flat', padx=15).pack(side='left', padx=5)
+        tk.Button(btn_frame, text="Scroll to Top", command=self.scroll_to_top,
+                 font=('Arial', 10), bg='#9b59b6', fg='white', relief='flat', padx=15).pack(side='left', padx=5)
+    
+    def create_scrollable_calendar(self):
+        # Create main container frame
+        container = tk.Frame(self.main_frame, bg='#f5f5f5')
+        container.pack(fill='both', expand=True)
+        
+        # Create canvas and scrollbar
+        self.canvas = tk.Canvas(container, bg='#f5f5f5', highlightthickness=0)
+        v_scrollbar = ttk.Scrollbar(container, orient='vertical', command=self.canvas.yview)
+        h_scrollbar = ttk.Scrollbar(container, orient='horizontal', command=self.canvas.xview)
+        
+        # Configure canvas scrolling
+        self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Create scrollable frame inside canvas
+        self.scrollable_frame = tk.Frame(self.canvas, bg='#f5f5f5')
+        
+        # Pack scrollbars and canvas
+        v_scrollbar.pack(side='right', fill='y')
+        h_scrollbar.pack(side='bottom', fill='x')
+        self.canvas.pack(side='left', fill='both', expand=True)
+        
+        # Add scrollable frame to canvas
+        canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor='nw')
+        
+        # Configure scroll region when frame size changes
+        def configure_scroll_region(event=None):
+            self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+            
+        def configure_canvas_width(event=None):
+            canvas_width = self.canvas.winfo_width()
+            self.canvas.itemconfig(canvas_frame, width=canvas_width)
+        
+        self.scrollable_frame.bind('<Configure>', configure_scroll_region)
+        self.canvas.bind('<Configure>', configure_canvas_width)
+        
+        # Bind mouse wheel scrolling
+        def on_mousewheel(event):
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def bind_mousewheel(event):
+            self.canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        def unbind_mousewheel(event):
+            self.canvas.unbind_all("<MouseWheel>")
+        
+        # Bind mousewheel when mouse enters canvas
+        self.canvas.bind('<Enter>', bind_mousewheel)
+        self.canvas.bind('<Leave>', unbind_mousewheel)
+        
+        # Also bind arrow keys for keyboard scrolling
+        def on_key_press(event):
+            if event.keysym == 'Up':
+                self.canvas.yview_scroll(-1, "units")
+            elif event.keysym == 'Down':
+                self.canvas.yview_scroll(1, "units")
+            elif event.keysym == 'Left':
+                self.canvas.xview_scroll(-1, "units")
+            elif event.keysym == 'Right':
+                self.canvas.xview_scroll(1, "units")
+            elif event.keysym == 'Prior':  # Page Up
+                self.canvas.yview_scroll(-10, "units")
+            elif event.keysym == 'Next':   # Page Down
+                self.canvas.yview_scroll(10, "units")
+        
+        self.root.bind('<Key>', on_key_press)
+        self.root.focus_set()
+    
+    def create_all_months(self):
+        # Create calendar grid container
+        cal_frame = tk.Frame(self.scrollable_frame, bg='#f5f5f5')
+        cal_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Configure grid weights for responsive layout
+        for i in range(4):  # 4 rows
+            cal_frame.grid_rowconfigure(i, weight=1)
+        for i in range(3):  # 3 columns
+            cal_frame.grid_columnconfigure(i, weight=1)
+        
+        # Create all 12 months instantly
+        for month in range(1, 13):
+            row = (month - 1) // 3
+            col = (month - 1) % 3
+            
+            month_frame = self.create_month(cal_frame, month)
+            month_frame.grid(row=row, column=col, padx=8, pady=8, sticky='nsew')
+        
+        # Update scroll region after all months are created
+        self.root.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+    
+    def create_month(self, parent, month_num):
+        # Make month frame larger to ensure full visibility
+        month_frame = tk.Frame(parent, bg='white', relief='raised', bd=2, 
+                              width=280, height=220)
+        month_frame.grid_propagate(False)  # Maintain fixed size
+        
+        # Month header
+        header = tk.Label(month_frame, text=calendar.month_name[month_num],
+                         font=('Arial', 14, 'bold'), bg='#3498db', fg='white', pady=8)
+        header.pack(fill='x')
+        
+        # Days container with fixed size
+        days_frame = tk.Frame(month_frame, bg='white')
+        days_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # Configure column weights
+        for i in range(7):
+            days_frame.grid_columnconfigure(i, weight=1)
         
         # Day headers
-        days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        for col, day in enumerate(days):
-            header = tk.Label(self.view_frame, text=day, 
-                            font=('Segoe UI', 10, 'bold'),
-                            bg=self.colors['surface'],
-                            fg=self.colors['text_secondary'],
-                            padx=5, pady=12,
-                            relief='solid', borderwidth=1,
-                            bd=0)
-            header.grid(row=0, column=col, sticky="ew")
+        day_names = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+        for i, day in enumerate(day_names):
+            lbl = tk.Label(days_frame, text=day, font=('Arial', 9, 'bold'),
+                          bg='#ecf0f1', fg='#34495e', width=4, height=1)
+            lbl.grid(row=0, column=i, sticky='ew', padx=1, pady=1)
         
         # Calendar days
-        for row, week in enumerate(month_days, start=1):
-            for col, date in enumerate(week):
-                day_str = date.strftime("%d/%m/%Y")
-                event_text = self.events.get(day_str, "")
-                
-                # Determine styling
-                is_current_month = date.month == month
-                is_today = date == today
-                is_weekend = col in [0, 6]  # Sunday and Saturday
-                
-                # Colors
-                if is_today:
-                    bg_color = self.colors['today_bg']
-                    text_color = self.colors['today']
-                    day_font = ('Segoe UI', 10, 'bold')
-                elif not is_current_month:
-                    bg_color = self.colors['surface']
-                    text_color = self.colors['text_secondary']
-                    day_font = ('Segoe UI', 9)
-                elif is_weekend:
-                    bg_color = self.colors['weekend']
-                    text_color = self.colors['text_primary']
-                    day_font = ('Segoe UI', 9)
+        cal_data = calendar.monthcalendar(self.current_year, month_num)
+        for week_num, week in enumerate(cal_data, 1):
+            for day_num, day in enumerate(week):
+                if day == 0:
+                    lbl = tk.Label(days_frame, text="", width=4, height=2, bg='white')
                 else:
-                    bg_color = self.colors['background']
-                    text_color = self.colors['text_primary']
-                    day_font = ('Segoe UI', 9)
+                    # Get day styling
+                    style_info = self.get_day_style(day, month_num)
+                    
+                    lbl = tk.Label(days_frame, text=str(day), 
+                                  font=style_info['font'],
+                                  bg=style_info['bg'], 
+                                  fg=style_info['fg'], 
+                                  width=4, height=2, relief='solid', bd=1)
+                    
+                    lbl.bind("<Button-1>", 
+                            lambda e, y=self.current_year, m=month_num, d=day: 
+                            self.show_date_info(y, m, d))
                 
-                # Create day container
-                day_frame = tk.Frame(self.view_frame, bg=bg_color, relief='solid', borderwidth=1, bd=0)
-                day_frame.grid(row=row, column=col, sticky="nsew", padx=0, pady=0)
-                
-                # Day number
-                day_label = tk.Label(day_frame, text=str(date.day),
-                                   font=day_font,
-                                   bg=bg_color, fg=text_color,
-                                   anchor='nw', padx=8, pady=6)
-                day_label.pack(anchor='nw')
-                
-                # Event text
-                if event_text:
-                    event_label = tk.Label(day_frame, text=event_text,
-                                         font=('Segoe UI', 8),
-                                         bg=self.colors['primary'],
-                                         fg=self.colors['background'],
-                                         padx=4, pady=2,
-                                         wraplength=80,
-                                         justify='left')
-                    event_label.pack(anchor='nw', padx=4, pady=(0, 4))
-                
-                # Make clickable
-                for widget in [day_frame, day_label]:
-                    widget.bind("<Button-1>", lambda e, d=day_str: self.add_event(d))
-                    widget.bind("<Enter>", lambda e, f=day_frame: f.config(bg=self.colors['hover']) if f['bg'] == self.colors['background'] else None)
-                    widget.bind("<Leave>", lambda e, f=day_frame, c=bg_color: f.config(bg=c))
-                    widget.config(cursor='hand2')
-        
-        # Configure grid weights for proper resizing
-        for i in range(7):
-            self.view_frame.columnconfigure(i, weight=1, minsize=120)
-        for i in range(len(month_days) + 1):
-            self.view_frame.rowconfigure(i, weight=1, minsize=80 if i == 0 else 100)
-
-    def show_week_view(self):
-        """Display week view with Google Calendar styling"""
-        self.clear_view_area()
-        
-        # Calculate week start (Sunday)
-        current = self.selected_date
-        days_since_sunday = (current.weekday() + 1) % 7
-        start_of_week = current - timedelta(days=days_since_sunday)
-        
-        week_days = [start_of_week + timedelta(days=i) for i in range(7)]
-        
-        # Update header
-        self.date_label.config(
-            text="Week of {} - {}".format(
-                start_of_week.strftime("%b %d"),
-                (start_of_week + timedelta(days=6)).strftime("%b %d, %Y")
-            )
-        )
-        
-        # Time column header
-        time_header = tk.Label(self.view_frame, text="",
-                              bg=self.colors['surface'],
-                              relief='solid', borderwidth=1, bd=0)
-        time_header.grid(row=0, column=0, sticky="ew")
-        
-        # Day headers
-        today = datetime.now().date()
-        for col, day in enumerate(week_days, start=1):
-            is_today = day.date() == today
-            header_text = "{}\n{}".format(day.strftime("%a"), day.strftime("%d"))
+                lbl.grid(row=week_num, column=day_num, sticky='ew', padx=1, pady=1)
             
-            header = tk.Label(self.view_frame, text=header_text,
-                            font=('Segoe UI', 10, 'bold' if is_today else 'normal'),
-                            bg=self.colors['today_bg'] if is_today else self.colors['surface'],
-                            fg=self.colors['today'] if is_today else self.colors['text_primary'],
-                            relief='solid', borderwidth=1, bd=0,
-                            padx=5, pady=8)
-            header.grid(row=0, column=col, sticky="ew")
+        return month_frame
+    
+    def get_day_style(self, day, month_num):
+        """Calculate day styling"""
+        bg_color = 'white'
+        fg_color = 'black'
+        font_style = ('Arial', 9)
         
-        # Time slots
-        for hour in range(24):
-            # Time label
-            time_text = "{:02d}:00".format(hour)
-            time_label = tk.Label(self.view_frame, text=time_text,
-                                font=('Segoe UI', 9),
-                                bg=self.colors['surface'],
-                                fg=self.colors['text_secondary'],
-                                anchor='ne', padx=8, pady=4,
-                                relief='solid', borderwidth=1, bd=0)
-            time_label.grid(row=hour + 1, column=0, sticky="ew")
+        # Check if weekend
+        day_of_week = date(self.current_year, month_num, day).weekday()
+        if day_of_week >= 5:  # Weekend
+            bg_color = '#ffebee'
+            fg_color = '#e74c3c'
+        
+        # Check if today
+        if (self.current_year == self.today.year and 
+            month_num == self.today.month and 
+            day == self.today.day):
+            bg_color = '#2ecc71'
+            fg_color = 'white'
+            font_style = ('Arial', 9, 'bold')
+        
+        return {
+            'bg': bg_color,
+            'fg': fg_color,
+            'font': font_style
+        }
+    
+    def show_date_info(self, year, month, day):
+        selected_date = date(year, month, day)
+        day_name = selected_date.strftime("%A")
+        
+        info = f"{day_name}, {calendar.month_name[month]} {day}, {year}"
+        if selected_date.weekday() >= 5:
+            info += "\n(Weekend)"
+        if selected_date == self.today:
+            info += "\n(Today)"
             
-            # Hour slots for each day
-            for col, day in enumerate(week_days, start=1):
-                date_str = "{} {:02d}:00".format(day.strftime("%d/%m/%Y"), hour)
-                event_text = self.events.get(date_str, "")
-                
-                is_today = day.date() == today
-                bg_color = self.colors['today_bg'] if is_today else self.colors['background']
-                
-                slot_frame = tk.Frame(self.view_frame, bg=bg_color,
-                                    relief='solid', borderwidth=1, bd=0)
-                slot_frame.grid(row=hour + 1, column=col, sticky="nsew")
-                
-                if event_text:
-                    event_label = tk.Label(slot_frame, text=event_text,
-                                         font=('Segoe UI', 8),
-                                         bg=self.colors['primary'],
-                                         fg=self.colors['background'],
-                                         padx=4, pady=2,
-                                         wraplength=100,
-                                         justify='left')
-                    event_label.pack(fill='both', expand=True, padx=2, pady=1)
-                
-                # Make clickable
-                slot_frame.bind("<Button-1>", lambda e, d=date_str: self.add_event(d))
-                slot_frame.bind("<Enter>", lambda e, f=slot_frame: f.config(bg=self.colors['hover']) if 'today_bg' not in str(f['bg']) else None)
-                slot_frame.bind("<Leave>", lambda e, f=slot_frame, c=bg_color: f.config(bg=c))
-                slot_frame.config(cursor='hand2')
-        
-        # Configure grid weights
-        self.view_frame.columnconfigure(0, weight=0, minsize=80)
-        for i in range(1, 8):
-            self.view_frame.columnconfigure(i, weight=1, minsize=100)
-        
-        self.view_frame.rowconfigure(0, weight=0, minsize=50)
-        for i in range(1, 25):
-            self.view_frame.rowconfigure(i, weight=0, minsize=40)
+        messagebox.showinfo("Date Info", info)
+    
+    def go_to_today(self):
+        if self.current_year != self.today.year:
+            self.current_year = self.today.year
+            self.create_calendar()
+        else:
+            # Scroll to current month
+            self.scroll_to_month(self.today.month)
+    
+    def scroll_to_month(self, month):
+        """Scroll to a specific month"""
+        # Calculate approximate position of the month
+        row = (month - 1) // 3
+        # Scroll to approximately that row position
+        total_height = self.canvas.bbox('all')[3] if self.canvas.bbox('all') else 1000
+        scroll_position = (row / 4.0) * 0.8  # Approximate position
+        self.canvas.yview_moveto(scroll_position)
+    
+    def scroll_to_top(self):
+        """Scroll to the top of the calendar"""
+        self.canvas.yview_moveto(0)
 
-    def add_event(self, date_str):
-        """Add or edit an event"""
-        current_event = self.events.get(date_str, "")
-        
-        # Create custom dialog
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Event Details")
-        dialog.geometry("400x200")
-        dialog.configure(bg=self.colors['background'])
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        
-        # Center the dialog
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        frame = tk.Frame(dialog, bg=self.colors['background'])
-        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        tk.Label(frame, text=f"Event for {date_str}:",
-                font=('Segoe UI', 12, 'bold'),
-                bg=self.colors['background'],
-                fg=self.colors['text_primary']).pack(anchor='w', pady=(0, 10))
-        
-        event_var = tk.StringVar(value=current_event)
-        event_entry = tk.Entry(frame, textvariable=event_var, 
-                              font=('Segoe UI', 11), width=40)
-        event_entry.pack(fill='x', pady=(0, 20))
-        event_entry.focus()
-        
-        button_frame = tk.Frame(frame, bg=self.colors['background'])
-        button_frame.pack(fill='x')
-        
-        def save_event():
-            event_text = event_var.get().strip()
-            if event_text:
-                self.events[date_str] = event_text
-            elif date_str in self.events:
-                del self.events[date_str]
-            self.refresh_view()
-            dialog.destroy()
-        
-        def delete_event():
-            if date_str in self.events:
-                del self.events[date_str]
-                self.refresh_view()
-            dialog.destroy()
-        
-        # Buttons
-        if current_event:
-            delete_btn = tk.Button(button_frame, text="Delete",
-                                  font=('Segoe UI', 9),
-                                  bg='#ea4335', fg=self.colors['background'],
-                                  border=0, padx=15, pady=6,
-                                  command=delete_event)
-            delete_btn.pack(side=tk.LEFT)
-        
-        cancel_btn = tk.Button(button_frame, text="Cancel",
-                              font=('Segoe UI', 9),
-                              bg=self.colors['background'],
-                              fg=self.colors['text_primary'],
-                              border=1, relief='solid',
-                              padx=15, pady=6,
-                              command=dialog.destroy)
-        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        
-        save_btn = tk.Button(button_frame, text="Save",
-                            font=('Segoe UI', 9),
-                            bg=self.colors['primary'],
-                            fg=self.colors['background'],
-                            border=0, padx=15, pady=6,
-                            command=save_event)
-        save_btn.pack(side=tk.RIGHT)
-        
-        # Bind Enter key to save
-        event_entry.bind('<Return>', lambda e: save_event())
-
+def main():
+    root = tk.Tk()
+    
+    # Enable full screen on different platforms
+    try:
+        root.state('zoomed')  # Windows
+    except:
+        try:
+            root.attributes('-zoomed', True)  # Linux
+        except:
+            root.attributes('-fullscreen', True)  # macOS/fallback
+    
+    app = CalendarApp(root)
+    
+    # Bind Escape key to exit fullscreen
+    root.bind('<Escape>', lambda e: root.quit())
+    
+    root.mainloop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = CalendarApp(root)
-    root.mainloop()
+    main()
